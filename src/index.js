@@ -6,6 +6,9 @@ const wss = new WebSocket.Server({ server });
 const Router = require('koa-router');
 const cors = require('koa-cors');
 const bodyparser = require('koa-bodyparser');
+const authRouter = require('./auth');
+const jwt = require('koa-jwt');
+import { timingLogger, exceptionHandler, jwtConfig, initWss, verifyClient } from './utils';
 
 app.use(bodyparser());
 app.use(cors());
@@ -35,19 +38,14 @@ class Bug {
 }
 
 const items = [];
-for (let i = 0; i < 3; i++) {
+for (let i = 0; i < 300; i++) {
   items.push(new Bug({ id: `${i}`, title: `bug ${i}`, description: `description ${i}`, priority: 1 }));
 }
 let lastUpdated = items[items.length - 1].date;
 let lastId = items[items.length - 1].id;
 const pageSize = 10;
 
-const broadcast = data =>
-  wss.clients.forEach(client => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(data));
-    }
-  });
+initWss(wss);
 
 const router = new Router();
 
@@ -151,16 +149,27 @@ router.del('/bug/:id', ctx => {
   ctx.response.status = 204; // no content
 });
 
-setInterval(() => {
-  lastId = `${parseInt(lastId) + 1}`;
-  const item = new Bug({ id: lastId, title: `bug ${lastId}`, description: `description ${lastId}`, priority: 1 });
-  items.push(item);
-  console.log(`
-   ${item.title}`);
-  broadcast({ event: 'created', payload: { item } });
-}, 15000);
 
-app.use(router.routes());
-app.use(router.allowedMethods());
+const prefix = '/api';
+// public
+const publicApiRouter = new Router({ prefix });
+publicApiRouter
+  .use('/auth', authRouter.router.routes());
+app
+  .use(router.routes())
+  .use(router.allowedMethods())
+  .use(publicApiRouter.routes())
+  .use(publicApiRouter.allowedMethods());
+
+app.use(jwt(jwtConfig));
+
+// setInterval(() => {
+//   lastId = `${parseInt(lastId) + 1}`;
+//   const item = new Bug({ id: lastId, title: `bug ${lastId}`, description: `description ${lastId}`, priority: 1 });
+//   items.push(item);
+//   console.log(`
+//    ${item.title}`);
+//   broadcast({ event: 'created', payload: { item } });
+// }, 15000);
 
 server.listen(3000);
